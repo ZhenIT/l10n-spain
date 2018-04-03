@@ -1,3 +1,5 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
 # © 2016-2017 Sergio Teruel <sergio.teruel@tecnativa.com>
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
@@ -7,6 +9,7 @@ import base64
 import logging
 import json
 import urllib
+from time import strftime
 
 from odoo import models, fields, api, _
 from odoo.addons.payment.models.payment_acquirer import ValidationError
@@ -43,8 +46,8 @@ class AcquirerRedsys(models.Model):
     provider = fields.Selection(selection_add=[('redsys', 'Redsys')])
     redsys_merchant_name = fields.Char('Merchant Name',
                                        required_if_provider='redsys')
-    redsys_merchant_titular = fields.Char('Merchant Titular',
-                                          required_if_provider='redsys')
+    #redsys_merchant_titular = fields.Char('Merchant Titular',
+    #                                      required_if_provider='redsys')
     redsys_merchant_code = fields.Char('Merchant code',
                                        required_if_provider='redsys')
     redsys_merchant_description = fields.Char('Product Description',
@@ -57,7 +60,7 @@ class AcquirerRedsys(models.Model):
                                   required_if_provider='redsys')
     redsys_transaction_type = fields.Char('Transtaction Type', default='0',
                                           required_if_provider='redsys')
-    redsys_merchant_data = fields.Char('Merchant Data')
+    #redsys_merchant_data = fields.Char('Merchant Data')
     redsys_merchant_lang = fields.Selection([('001', 'Castellano'),
                                              ('002', 'Inglés'),
                                              ('003', 'Catalán'),
@@ -108,6 +111,7 @@ class AcquirerRedsys(models.Model):
 
     @api.model
     def _get_website_url(self):
+        '''
         website_id = self.env.context.get('website_id', False)
         if website_id:
             base_url = '%s://%s' % (
@@ -115,8 +119,9 @@ class AcquirerRedsys(models.Model):
                 self.env['website'].browse(website_id).domain
             )
         else:
-            get_param = self.env['ir.config_parameter'].sudo().get_param
-            base_url = get_param('web.base.url')
+        '''
+        get_param = self.env['ir.config_parameter'].sudo().get_param
+        base_url = get_param('web.base.url')
         return base_url or ''
 
     def _prepare_merchant_parameters(self, tx_values):
@@ -134,29 +139,40 @@ class AcquirerRedsys(models.Model):
             'Ds_Merchant_Amount': str(int(round(tx_values['amount'] * 100))),
             'Ds_Merchant_Currency': self.redsys_currency or '978',
             'Ds_Merchant_Order': (
-                tx_values['reference'] and tx_values['reference'][-12:] or
-                False),
+                "%s-%s"%(
+                    tx_values['reference'] and tx_values['reference'][-7:],
+                    strftime('%M%S')
+                )
+            ),
             'Ds_Merchant_MerchantCode': (
                 self.redsys_merchant_code and
-                self.redsys_merchant_code[:9]),
+                self.redsys_merchant_code[:9]
+            ),
             'Ds_Merchant_Terminal': self.redsys_terminal or '1',
             'Ds_Merchant_TransactionType': (
                 self.redsys_transaction_type or '0'),
             'Ds_Merchant_Titular': (
-                self.redsys_merchant_titular[:60] and
-                self.redsys_merchant_titular[:60]),
+                '%s %s' % (
+                    tx_values['billing_partner_first_name'],
+                    tx_values['billing_partner_last_name']
+                )[:60]
+            ),
             'Ds_Merchant_MerchantName': (
                 self.redsys_merchant_name and
-                self.redsys_merchant_name[:25]),
+                self.redsys_merchant_name[:25]
+            ),
             'Ds_Merchant_MerchantUrl': (
-                '%s/payment/redsys/return' % (callback_url or base_url))[:250],
-            'Ds_Merchant_MerchantData': self.redsys_merchant_data or '',
+                '%s/payment/redsys/return' % (callback_url or base_url)
+            )[:250],
+            'Ds_Merchant_MerchantData': tx_values['reference'],
             'Ds_Merchant_ProductDescription': (
                 self._product_description(tx_values['reference']) or
                 self.redsys_merchant_description and
-                self.redsys_merchant_description[:125]),
+                self.redsys_merchant_description[:125]
+            ),
             'Ds_Merchant_ConsumerLanguage': (
-                self.redsys_merchant_lang or '001'),
+                self.redsys_merchant_lang or '001'
+            ),
             'Ds_Merchant_UrlOk':
             '%s/payment/redsys/result/redsys_result_ok' % base_url,
             'Ds_Merchant_UrlKo':
@@ -247,7 +263,7 @@ class TxRedsys(models.Model):
         find the related transaction record. """
         parameters = data.get('Ds_MerchantParameters', '')
         parameters_dic = json.loads(base64.b64decode(parameters).decode())
-        reference = urllib.parse.unquote(parameters_dic.get('Ds_Order', ''))
+        reference = urllib.parse.unquote(parameters_dic.get('Ds_Merchant_MerchantData', ''))
         pay_id = parameters_dic.get('Ds_AuthorisationCode')
         shasign = data.get(
             'Ds_Signature', '').replace('_', '/').replace('-', '+')
